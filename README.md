@@ -57,8 +57,6 @@ Use any of these (password for all: **12345@aA**):
 
 ## Screenshots
 
-**Auth (login → forgot password → change password → create account)**
-
 1. **Login page**
 
 ![Login page](images/login%20page.png)
