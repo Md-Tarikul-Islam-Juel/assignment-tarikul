@@ -1,7 +1,7 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../shared/toast/toast.service';
 
@@ -47,6 +47,7 @@ export class ForgotPasswordComponent {
     private fb: FormBuilder,
     private auth: AuthService,
     private toast: ToastService,
+    private router: Router,
   ) {
     this.form = this.fb.group({
       email: ['', [Validators.required, Validators.email]],
@@ -56,10 +57,12 @@ export class ForgotPasswordComponent {
   onSubmit(): void {
     if (this.form.invalid) return;
     this.loading = true;
-    this.auth.forgetPassword(this.form.get('email')?.value).subscribe({
+    const email = this.form.get('email')?.value;
+    this.auth.forgetPassword(email).subscribe({
       next: (res: { message: string }) => {
-        this.toast.showSuccess(res.message || 'OTP sent. Check your email, then verify and set a new password.');
+        this.toast.showSuccess(res.message || 'OTP sent. Check your email.');
         this.loading = false;
+        this.router.navigate(['/verify'], { queryParams: { email, recovery: '1' } });
       },
       error: (err: { error?: { message?: string; detail?: string }; message?: string }) => {
         const msg = err.error?.message ?? err.error?.detail ?? err.message ?? 'Failed to send OTP';

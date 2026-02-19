@@ -13,7 +13,7 @@ import type { SigninSuccessResponse } from '../../../core/models/auth.model';
   template: `
     <div class="auth-page">
       <div class="card auth-card">
-        <h1 class="page-title">Verify your email</h1>
+        <h1 class="page-title">{{ recoveryMode ? 'Verify OTP to reset password' : 'Verify your email' }}</h1>
         <form [formGroup]="form" (ngSubmit)="onSubmit()">
           <div class="form-group">
             <label for="email">Email</label>
@@ -58,11 +58,14 @@ export class VerifyComponent {
     private toast: ToastService,
   ) {
     const email = this.route.snapshot.queryParams['email'] ?? '';
+    this.recoveryMode = this.route.snapshot.queryParams['recovery'] === '1';
     this.form = this.fb.group({
       email: [email, [Validators.required, Validators.email]],
       otp: ['', [Validators.required, Validators.pattern(/^\d{6}$/)]],
     });
   }
+
+  recoveryMode = false;
 
   onSubmit(): void {
     if (this.form.invalid) return;
@@ -71,7 +74,11 @@ export class VerifyComponent {
       next: (res: SigninSuccessResponse) => {
         if (res.tokens && res.data?.user) {
           this.auth.setSession(res);
-          this.router.navigate(['/dashboard']);
+          if (this.recoveryMode) {
+            this.router.navigate(['/change-password'], { queryParams: { recovery: '1' } });
+          } else {
+            this.router.navigate(['/dashboard']);
+          }
         } else {
           this.toast.showError(res.message || 'Verification failed');
         }

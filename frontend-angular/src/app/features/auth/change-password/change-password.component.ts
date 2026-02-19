@@ -1,7 +1,7 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../shared/toast/toast.service';
 
@@ -12,13 +12,15 @@ import { ToastService } from '../../../shared/toast/toast.service';
   template: `
     <div class="auth-page">
       <div class="card auth-card">
-        <h1 class="page-title">Change password</h1>
-        <p class="muted">After forgot-password flow: only new password is required. Otherwise provide old and new.</p>
+        <h1 class="page-title">{{ isRecovery ? 'Set new password' : 'Change password' }}</h1>
+        <p class="muted">{{ isRecovery ? 'Enter your new password to complete account recovery.' : 'After forgot-password flow: only new password is required. Otherwise provide old and new.' }}</p>
         <form [formGroup]="form" (ngSubmit)="onSubmit()">
-          <div class="form-group">
-            <label for="oldPassword">Old password (optional if resetting)</label>
-            <input id="oldPassword" type="password" formControlName="oldPassword" placeholder="••••••••" />
-          </div>
+          @if (!isRecovery) {
+            <div class="form-group">
+              <label for="oldPassword">Old password</label>
+              <input id="oldPassword" type="password" formControlName="oldPassword" placeholder="••••••••" />
+            </div>
+          }
           <div class="form-group">
             <label for="newPassword">New password</label>
             <input id="newPassword" type="password" formControlName="newPassword" placeholder="••••••••" />
@@ -27,11 +29,15 @@ import { ToastService } from '../../../shared/toast/toast.service';
             }
           </div>
           <button type="submit" class="btn btn-primary" [disabled]="form.get('newPassword')?.invalid || loading">
-            {{ loading ? 'Updating...' : 'Update password' }}
+            {{ loading ? 'Updating...' : (isRecovery ? 'Reset password' : 'Update password') }}
           </button>
         </form>
         <p class="auth-links">
-          <a routerLink="/dashboard">Back to dashboard</a>
+          @if (isRecovery) {
+            <a routerLink="/login">Back to sign in</a>
+          } @else {
+            <a routerLink="/dashboard">Back to dashboard</a>
+          }
         </p>
       </div>
     </div>
@@ -47,12 +53,16 @@ export class ChangePasswordComponent {
   form: FormGroup;
   loading = false;
 
+  isRecovery = false;
+
   constructor(
     private fb: FormBuilder,
     private auth: AuthService,
     private router: Router,
+    private route: ActivatedRoute,
     private toast: ToastService,
   ) {
+    this.isRecovery = this.route.snapshot.queryParams['recovery'] === '1';
     this.form = this.fb.group({
       oldPassword: [''],
       newPassword: ['', [Validators.required, Validators.minLength(8)]],
@@ -71,7 +81,12 @@ export class ChangePasswordComponent {
       next: (res: { message: string }) => {
         this.toast.showSuccess(res.message || 'Password updated.');
         this.loading = false;
-        setTimeout(() => this.router.navigate(['/dashboard']), 1500);
+        if (this.isRecovery) {
+          this.auth.clearSession();
+          setTimeout(() => this.router.navigate(['/login']), 1500);
+        } else {
+          setTimeout(() => this.router.navigate(['/dashboard']), 1500);
+        }
       },
       error: (err: { error?: { message?: string; detail?: string }; message?: string }) => {
         const msg = err.error?.message ?? err.error?.detail ?? err.message ?? 'Failed to update password';
