@@ -1,0 +1,1132 @@
+{
+  "info": {
+    "_postman_id": "c19e23e5-e89d-4db1-b46a-bd58f7a83bdf",
+    "name": "assignment-tarikul",
+    "description": "Bank Management App API Collection.\n\n**Seed credentials (password for all: 12345@aA):**\n- Admin: admin@gmail.com\n- Employee: employee@gmail.com\n- Customer: customer@gmail.com (has checking, savings, 1 PENDING loan, 1 FD, 1 RD)\n\n**Security:** Passwords hashed (bcrypt); account numbers encrypted at rest. API returns account numbers in responses as usual. Set ENCRYPTION_KEY (64 hex) in production.\n\n**Deposit:** Admin and Employee only. Use adminToken for Deposit request; customers cannot deposit.\n\n**Loan flow:** 1) Sign in as customer → Apply for loan. 2) Sign in as admin → List loan applications → Approve (body: interestRate). 3) Get repayment schedule (sets repaymentId from first unpaid). 4) Pay installment (body: fromAccountId = customer's account ID; use accountId from List Accounts).\n\n**Savings plans:** Sign in as customer → List Accounts (get accountId) → Create FD or RD (sourceAccountId). List/Get savings plans. Admin: POST run-monthly-interest to credit interest and process maturities.\n\n**Reports:** GET /v1/reports/statements/monthly (accountId, year, month), /reports/account-summary, /reports/loan-balances, /reports/transaction-history. All require Bearer {{accessToken}}. Set accountId from List Accounts.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "19990265",
+    "_collection_link": "https://go.postman.co/collection/19990265-c19e23e5-e89d-4db1-b46a-bd58f7a83bdf?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "AUTH",
+      "item": [
+        {
+          "name": "signup (Customer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"signup_email\", JSON.parse(pm.request.body.raw).email);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"email\": \"md.tarikulislamjuel01@gmail.com\",\r\n    \"password\": \"Customer@123\",\r\n    \"firstName\": \"tarikul\",\r\n    \"lastName\": \"juel\",\r\n    \"mfaEnabled\": false\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/auth/signup",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "signup"
+              ]
+            },
+            "description": "Public signup endpoint. **Always creates CUSTOMER role** (role field is ignored if provided). Staff (EMPLOYEE/ADMIN) cannot sign up; they are created by admins."
+          },
+          "response": []
+        },
+        {
+          "name": "signin (Customer, Admin, Employee)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();\r",
+                  "pm.collectionVariables.set(\"accessToken\", jsonData.tokens.accessToken);\r",
+                  "pm.collectionVariables.set(\"refreshToken\", jsonData.tokens.refreshToken);\r",
+                  "\r",
+                  "pm.globals.set(\"accessToken\", jsonData.tokens.accessToken);\r",
+                  "\r",
+                  "// Save user role if available\r",
+                  "if (jsonData.data && jsonData.data.user && jsonData.data.user.role) {\r",
+                  "    pm.collectionVariables.set(\"userRole\", jsonData.data.user.role);\r",
+                  "    // If admin, also save as adminToken\r",
+                  "    if (jsonData.data.user.role === 'ADMIN') {\r",
+                  "        pm.collectionVariables.set(\"adminToken\", jsonData.tokens.accessToken);\r",
+                  "    }\r",
+                  "}"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "// Customer: customer@gmail.com / 12345@aA\r\n// Admin: admin@gmail.com / 12345@aA\r\n// Employee: employee@gmail.com / 12345@aA\r\n{\r\n    \"email\": \"admin@gmail.com\",\r\n    \"password\": \"12345@aA\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/auth/signin",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "signin"
+              ]
+            },
+            "description": "Sign in with email and password. Response includes user role (CUSTOMER, EMPLOYEE, or ADMIN)."
+          },
+          "response": []
+        },
+        {
+          "name": "resend (Public)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"email\": \"md.tarikulislamjuel@gmail.com\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/auth/resend",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "resend"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "verify (Public)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();\r",
+                  "pm.collectionVariables.set(\"accessToken\", jsonData.tokens.accessToken);\r",
+                  "pm.collectionVariables.set(\"refreshToken\", jsonData.tokens.refreshToken);\r",
+                  "\r",
+                  "pm.globals.set(\"accessToken\", jsonData.tokens.accessToken);\r",
+                  "\r",
+                  "// Save user role if available\r",
+                  "if (jsonData.data && jsonData.data.user && jsonData.data.user.role) {\r",
+                  "    pm.collectionVariables.set(\"userRole\", jsonData.data.user.role);\r",
+                  "}"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"email\": \"md.tarikulislamjuel@gmail.com\",\r\n    \"otp\": \"912085\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/auth/verify",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "verify"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "forget_password (Public)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "\r",
+                  "pm.collectionVariables.set(\"forget_password_email\", JSON.parse(pm.request.body.raw).email);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"email\": \"md.tarikulislamjuel@gmail.com\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/auth/forget-password",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "forget-password"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "change_password (Customer, Admin, Employee)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"oldPassword\": \"aiub2@aA\", \r\n    \"newPassword\": \"aiub1@aA\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/auth/change-password",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "change-password"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Logout all devices (Customer, Admin, Employee)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/auth/logout-all",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "logout-all"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "refresh token (Customer, Admin, Employee)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();\r",
+                  "\r",
+                  "pm.collectionVariables.set(\"accessToken\", jsonData.tokens.accessToken);\r",
+                  "pm.collectionVariables.set(\"refreshToken\", jsonData.tokens.refreshToken);\r",
+                  "\r",
+                  "\r",
+                  "pm.globals.set(\"accessToken\", jsonData.tokens.accessToken);\r",
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{refreshToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/auth/refresh-token",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "refresh-token"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Authentication endpoints. Public signup creates CUSTOMER role only."
+    },
+    {
+      "name": "ADMIN",
+      "item": [
+        {
+          "name": "Create Employee (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "description": "Admin access token required"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"email\": \"employee1@bank.com\",\r\n    \"password\": \"SecurePass1!\",\r\n    \"firstName\": \"Jane\",\r\n    \"lastName\": \"Smith\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/admin/users/create-employee",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users",
+                "create-employee"
+              ]
+            },
+            "description": "**Admin only.** Creates a new bank employee (EMPLOYEE role). Staff do not sign up; only admins can create them. Employee account is created as verified and can sign in immediately."
+          },
+          "response": []
+        }
+      ],
+      "description": "Admin-only endpoints for user management. Requires ADMIN role. Use admin token from signin (admin) endpoint. **Note:** Only one admin exists (admin@gmail.com). Admins cannot create other admins."
+    },
+    {
+      "name": "ACCOUNT MANAGEMENT",
+      "description": "Account Management endpoints. Supports checking, savings, and loan accounts with multi-currency support. **Role-Based Access:** Customers cannot create accounts; only Admin and Employee create accounts for customers (userId required). Customers can view their own accounts. Employees can view all accounts and update account details. Admins have full access.",
+      "item": [
+        {
+          "name": "Create Account (Admin, Employee)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "description": "Access token required"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "// Seed customer has userId 3. Create account for that customer.\r\n{\r\n    \"userId\": 3,\r\n    \"type\": \"CHECKING\",\r\n    \"currency\": \"USD\",\r\n    \"minimumBalance\": 100\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/accounts",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "accounts"
+              ]
+            },
+            "description": "Create an account for a customer. **Admin/Employee only.** Customers cannot create their own accounts. **userId is required** (customer's user ID). Account Types: CHECKING, SAVINGS, LOAN. Currencies: USD, EUR, GBP, BDT, etc. For loan accounts include loanAmount and loanTermMonths."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Savings Account (Admin, Employee)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"userId\": 3,\r\n    \"type\": \"SAVINGS\",\r\n    \"currency\": \"USD\",\r\n    \"interestRate\": 2.5,\r\n    \"minimumBalance\": 500\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/accounts",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "accounts"
+              ]
+            },
+            "description": "Create a savings account for a customer. Admin/Employee only. userId required (customer ID)."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Loan Account (Admin, Employee)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "// Manual LOAN account (optional). Loan module creates LOAN account on Approve.\r\n{\r\n    \"userId\": 3,\r\n    \"type\": \"LOAN\",\r\n    \"currency\": \"USD\",\r\n    \"loanAmount\": 10000,\r\n    \"loanTermMonths\": 12,\r\n    \"interestRate\": 5.0\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/accounts",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "accounts"
+              ]
+            },
+            "description": "Create a loan account for a customer. Admin/Employee only. userId required. Requires loanAmount and loanTermMonths."
+          },
+          "response": []
+        },
+        {
+          "name": "List Accounts (Customer, Admin, Employee)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/v1/accounts?limit=10&offset=0",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Limit results (default: 10)"
+                },
+                {
+                  "key": "offset",
+                  "value": "0",
+                  "description": "Offset for pagination (default: 0)"
+                },
+                {
+                  "key": "type",
+                  "value": "CHECKING",
+                  "description": "Filter by account type (CHECKING, SAVINGS, LOAN)",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE",
+                  "description": "Filter by status (ACTIVE, INACTIVE, CLOSED, FROZEN)",
+                  "disabled": true
+                },
+                {
+                  "key": "userId",
+                  "value": "",
+                  "description": "Filter by user ID (employees/admins only)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List accounts. **Customers:** See only their own accounts. **Employees/Admins:** Can filter by userId to see all accounts."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Account by ID (Customer, Admin, Employee)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {\r",
+                  "    var jsonData = pm.response.json();\r",
+                  "    if (jsonData.data && jsonData.data.id) {\r",
+                  "        pm.collectionVariables.set(\"accountId\", jsonData.data.id);\r",
+                  "        pm.collectionVariables.set(\"accountNumber\", jsonData.data.accountNumber);\r",
+                  "    }\r",
+                  "}"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/v1/accounts/1",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "accounts",
+                "1"
+              ],
+              "description": "Replace '1' with actual account ID"
+            },
+            "description": "Get account details by ID. **Customers:** Can only access their own accounts."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Account by Account Number (Customer, Admin, Employee)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/v1/accounts/number/{{accountNumber}}",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "accounts",
+                "number",
+                "{{accountNumber}}"
+              ]
+            },
+            "description": "Get account details by account number. **Customers:** Can only access their own accounts."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Account (Admin, Employee)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "description": "Admin or Employee token required"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"status\": \"ACTIVE\",\r\n    \"interestRate\": 3.0,\r\n    \"minimumBalance\": 200,\r\n    \"dailyWithdrawalLimit\": 5000,\r\n    \"transferFeePercent\": 0.5,\r\n    \"transferFeeFixed\": 1.5\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/v1/accounts/{{accountId}}",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "accounts",
+                "{{accountId}}"
+              ]
+            },
+            "description": "Update account details. **Employees/Admins only.** Can update status (ACTIVE, INACTIVE, CLOSED, FROZEN), interestRate, minimumBalance, dailyWithdrawalLimit, transferFeePercent, transferFeeFixed."
+          },
+          "response": []
+        },
+        {
+          "name": "Deposit (Admin, Employee only)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}", "description": "Admin or Employee token (customers cannot deposit)"}],
+            "body": {"mode": "raw", "raw": "{\r\n    \"amount\": 100,\r\n    \"description\": \"Cash deposit\"\r\n}", "options": {"raw": {"language": "json"}}},
+            "url": {"raw": "{{url}}/v1/accounts/{{accountId}}/deposit", "host": ["{{url}}"], "path": ["v1", "accounts", "{{accountId}}", "deposit"]}
+          },
+          "description": "Deposit funds into an account. Admin and Employee only; customers cannot deposit.",
+          "response": []
+        },
+        {
+          "name": "Withdraw (Customer, Admin, Employee)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "body": {"mode": "raw", "raw": "{\r\n    \"amount\": 50,\r\n    \"description\": \"ATM withdrawal\"\r\n}", "options": {"raw": {"language": "json"}}},
+            "url": {"raw": "{{url}}/v1/accounts/{{accountId}}/withdraw", "host": ["{{url}}"], "path": ["v1", "accounts", "{{accountId}}", "withdraw"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Transfer (Customer, Admin, Employee)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "body": {"mode": "raw", "raw": "{\r\n    \"toAccountNumber\": \"{{accountNumber}}\",\r\n    \"amount\": 100,\r\n    \"description\": \"Payment\"\r\n}", "options": {"raw": {"language": "json"}}},
+            "url": {"raw": "{{url}}/v1/accounts/{{accountId}}/transfer", "host": ["{{url}}"], "path": ["v1", "accounts", "{{accountId}}", "transfer"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Account (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "description": "Admin token required"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/v1/accounts/{{accountId}}",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "accounts",
+                "{{accountId}}"
+              ]
+            },
+            "description": "Delete an account (soft delete). **Admin only.** Account must have zero balance to be deleted."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Account Transaction History (Customer, Admin, Employee)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/v1/accounts/{{accountId}}/history?limit=10&offset=0",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "v1",
+                "accounts",
+                "{{accountId}}",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Limit results (default: 10)"
+                },
+                {
+                  "key": "offset",
+                  "value": "0",
+                  "description": "Offset for pagination (default: 0)"
+                },
+                {
+                  "key": "type",
+                  "value": "DEPOSIT",
+                  "description": "Filter by transaction type (DEPOSIT, WITHDRAWAL, TRANSFER_IN, TRANSFER_OUT, etc.)",
+                  "disabled": true
+                },
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01",
+                  "description": "Start date filter (YYYY-MM-DD)",
+                  "disabled": true
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-12-31",
+                  "description": "End date filter (YYYY-MM-DD)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get transaction history for an account. **Customers:** Can only access their own account history."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "LOAN MANAGEMENT",
+      "item": [
+        {
+          "name": "Apply for loan (Customer)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "body": {"mode": "raw", "raw": "{\r\n    \"loanType\": \"PERSONAL\",\r\n    \"amount\": 5000,\r\n    \"termMonths\": 12,\r\n    \"purpose\": \"Home improvement\"\r\n}", "options": {"raw": {"language": "json"}}},
+            "url": {"raw": "{{url}}/v1/loans/applications", "host": ["{{url}}"], "path": ["v1", "loans", "applications"]}
+          },
+          "response": []
+        },
+        {
+          "name": "List loan applications",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.length > 0) {",
+                  "    pm.collectionVariables.set('loanApplicationId', json.data[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{url}}/v1/loans/applications?limit=20&offset=0", "host": ["{{url}}"], "path": ["v1", "loans", "applications"], "query": [{"key": "limit", "value": "20"}, {"key": "offset", "value": "0"}, {"key": "status", "value": "PENDING", "disabled": true}, {"key": "userId", "value": "3", "disabled": true, "description": "Admin/Employee: filter by applicant"}]}
+          },
+          "response": []
+        },
+        {
+          "name": "Get loan application by ID",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{url}}/v1/loans/applications/{{loanApplicationId}}", "host": ["{{url}}"], "path": ["v1", "loans", "applications", "{{loanApplicationId}}"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Approve loan (Admin, Employee)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "body": {"mode": "raw", "raw": "{\r\n    \"interestRate\": 6.5\r\n}", "options": {"raw": {"language": "json"}}},
+            "url": {"raw": "{{url}}/v1/loans/applications/{{loanApplicationId}}/approve", "host": ["{{url}}"], "path": ["v1", "loans", "applications", "{{loanApplicationId}}", "approve"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Reject loan (Admin, Employee)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "body": {"mode": "raw", "raw": "{\r\n    \"rejectionReason\": \"Insufficient credit history\"\r\n}", "options": {"raw": {"language": "json"}}},
+            "url": {"raw": "{{url}}/v1/loans/applications/{{loanApplicationId}}/reject", "host": ["{{url}}"], "path": ["v1", "loans", "applications", "{{loanApplicationId}}", "reject"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Get repayment schedule",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.length > 0) {",
+                  "    var unpaid = json.data.find(function(r) { return r.status !== 'PAID'; });",
+                  "    if (unpaid) pm.collectionVariables.set('repaymentId', unpaid.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{url}}/v1/loans/applications/{{loanApplicationId}}/schedule", "host": ["{{url}}"], "path": ["v1", "loans", "applications", "{{loanApplicationId}}", "schedule"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Pay loan installment (Customer)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "body": {"mode": "raw", "raw": "{\r\n    \"fromAccountId\": {{accountId}}\r\n}", "options": {"raw": {"language": "json"}}},
+            "url": {"raw": "{{url}}/v1/loans/repayments/{{repaymentId}}/pay", "host": ["{{url}}"], "path": ["v1", "loans", "repayments", "{{repaymentId}}", "pay"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "SAVINGS PLANS",
+      "description": "Fixed Deposit (FD) and Recurring Deposit (RD). Customer: create FD/RD, list, get. Admin/Employee: run monthly interest job. Seed customer has 1 FD + 1 RD; use List Accounts to get sourceAccountId.",
+      "item": [
+        {
+          "name": "Create Fixed Deposit (Customer)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "body": {"mode": "raw", "raw": "{\r\n    \"sourceAccountId\": {{accountId}},\r\n    \"principal\": 2000,\r\n    \"termMonths\": 12,\r\n    \"interestRate\": 5.5\r\n}", "options": {"raw": {"language": "json"}}},
+            "url": {"raw": "{{url}}/v1/savings-plans/fixed-deposit", "host": ["{{url}}"], "path": ["v1", "savings-plans", "fixed-deposit"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Create Recurring Deposit (Customer)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "body": {"mode": "raw", "raw": "{\r\n    \"sourceAccountId\": {{accountId}},\r\n    \"monthlyAmount\": 150,\r\n    \"termMonths\": 12,\r\n    \"interestRate\": 5\r\n}", "options": {"raw": {"language": "json"}}},
+            "url": {"raw": "{{url}}/v1/savings-plans/recurring-deposit", "host": ["{{url}}"], "path": ["v1", "savings-plans", "recurring-deposit"]}
+          },
+          "response": []
+        },
+        {
+          "name": "List Savings Plans (Customer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["var json = pm.response.json();", "if (json.data && json.data.length > 0) { pm.collectionVariables.set('savingsPlanId', json.data[0].id); }"],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{url}}/v1/savings-plans", "host": ["{{url}}"], "path": ["v1", "savings-plans"], "query": [{"key": "status", "value": "ACTIVE", "disabled": true}, {"key": "planType", "value": "FIXED_DEPOSIT", "disabled": true}]}
+          },
+          "response": []
+        },
+        {
+          "name": "Get Savings Plan by ID (Customer)",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{url}}/v1/savings-plans/{{savingsPlanId}}", "host": ["{{url}}"], "path": ["v1", "savings-plans", "{{savingsPlanId}}"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Run monthly interest job (Admin, Employee)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}],
+            "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}},
+            "url": {"raw": "{{url}}/v1/savings-plans/run-monthly-interest", "host": ["{{url}}"], "path": ["v1", "savings-plans", "run-monthly-interest"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "REPORTS & STATEMENTS",
+      "description": "Monthly statements, account summary, loan balances, transaction history. All require Bearer {{accessToken}}. Set accountId from List Accounts (e.g. Get Account by ID test).",
+      "item": [
+        {
+          "name": "Monthly Statement",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{url}}/v1/reports/statements/monthly?accountId={{accountId}}&year=2026&month=2", "host": ["{{url}}"], "path": ["v1", "reports", "statements", "monthly"], "query": [{"key": "accountId", "value": "{{accountId}}"}, {"key": "year", "value": "2026"}, {"key": "month", "value": "2"}]}
+          },
+          "description": "Generate monthly statement for an account. Requires accountId (from List Accounts), year, month (1-12).",
+          "response": []
+        },
+        {
+          "name": "Account Summary",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{url}}/v1/reports/account-summary", "host": ["{{url}}"], "path": ["v1", "reports", "account-summary"], "query": [{"key": "userId", "value": "", "description": "Admin/Employee: filter by customer userId", "disabled": true}]}
+          },
+          "description": "List all accounts with balances. Customers see own; Admin/Employee can pass userId.",
+          "response": []
+        },
+        {
+          "name": "Loan Balances",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{url}}/v1/reports/loan-balances", "host": ["{{url}}"], "path": ["v1", "reports", "loan-balances"], "query": [{"key": "userId", "value": "", "description": "Admin/Employee: filter by customer userId", "disabled": true}]}
+          },
+          "description": "Approved loans with outstanding balance (total, paid principal, outstanding).",
+          "response": []
+        },
+        {
+          "name": "Transaction History Report",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{accessToken}}"}],
+            "url": {"raw": "{{url}}/v1/reports/transaction-history?accountId={{accountId}}&limit=50&offset=0", "host": ["{{url}}"], "path": ["v1", "reports", "transaction-history"], "query": [{"key": "accountId", "value": "{{accountId}}"}, {"key": "limit", "value": "50"}, {"key": "offset", "value": "0"}, {"key": "startDate", "value": "2026-01-01", "disabled": true}, {"key": "endDate", "value": "2026-12-31", "disabled": true}]}
+          },
+          "description": "Paginated transaction history for an account. Optional startDate, endDate (YYYY-MM-DD).",
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "OTP",
+      "item": [
+        {
+          "name": "OTP list data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{url}}/dev/otps/data",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "dev",
+                "otps",
+                "data"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "OTP list UI",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3000/dev/otps",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "dev",
+                "otps"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "url",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "firstName",
+      "value": "xyz"
+    },
+    {
+      "key": "lastName",
+      "value": "abc"
+    },
+    {
+      "key": "mobile",
+      "value": "+8801511111111"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "signup_email",
+      "value": ""
+    },
+    {
+      "key": "forget_password_email",
+      "value": ""
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "description": "Admin access token for admin-only endpoints"
+    },
+    {
+      "key": "userRole",
+      "value": "",
+      "description": "Current user's role (CUSTOMER, EMPLOYEE, or ADMIN)"
+    },
+    {
+      "key": "accountId",
+      "value": "",
+      "description": "Account ID for account operations"
+    },
+    {
+      "key": "accountNumber",
+      "value": "",
+      "description": "Account number for account operations"
+    },
+    {
+      "key": "loanApplicationId",
+      "value": "",
+      "description": "Loan application ID (set by List loan applications or use ID from list)"
+    },
+    {
+      "key": "repaymentId",
+      "value": "",
+      "description": "Repayment/installment ID for Pay loan installment (from schedule response data[].id)"
+    },
+    {
+      "key": "savingsPlanId",
+      "value": "",
+      "description": "Savings plan ID (set by List Savings Plans or use ID from list)"
+    }
+  ]
+}

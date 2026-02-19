@@ -1,0 +1,199 @@
+import { MailerModule } from '@nestjs-modules/mailer';
+import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
+import { AccessTokenStrategy } from '../../common/auth/strategies/access-token.strategy';
+import { RefreshTokenStrategy } from '../../common/auth/strategies/refresh-token.strategy';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { LoggerModule } from '../../common/observability/logger.module';
+import { LoggerService } from '../../common/observability/logger.service';
+import { UNIT_OF_WORK_PORT } from '../../common/persistence/uow/di-tokens';
+import { PlatformJwtModule } from '../../platform/jwt/jwt.module';
+import { PrismaModule } from '../../platform/prisma/prisma.module';
+import { EmailQueueModule } from '../../platform/queue/email-queue.module';
+import { EmailQueueService } from '../../platform/queue/services/email-queue.service';
+import { JtiAllowlistService } from '../../platform/redis/jti-allowlist.service';
+import { RedisModule } from '../../platform/redis/redis.module';
+import {
+  ACTIVITY_CACHE_PORT,
+  EMAIL_SERVICE_PORT,
+  JWT_SERVICE_PORT,
+  LOGGER_PORT,
+  OTP_CACHE_PORT,
+  OTP_GENERATOR_PORT,
+  PASSWORD_HASHER_PORT,
+  USER_REPOSITORY_PORT
+} from './application/di-tokens';
+import { AuthService } from './application/services/auth.service';
+import { CommonAuthService } from './application/services/common-auth.service';
+import { LastActivityTrackService } from './application/services/last-activity-track.service';
+import { LogoutService } from './application/services/logout.service';
+import { OtpDomainService } from './application/services/otp-domain.service';
+import { OtpService } from './application/services/otp.service';
+import { PasswordPolicyService } from './application/services/password-policy.service';
+import { PasswordValidationService } from './application/services/password-validation.service';
+import { UserService } from './application/services/user.service';
+import { ChangePasswordUseCase } from './application/use-cases/change-password.use-case';
+import { ForgetPasswordUseCase } from './application/use-cases/forget-password.use-case';
+import { CreateStaffUseCase } from './application/use-cases/create-staff.use-case';
+import { OAuthSignInUseCase } from './application/use-cases/oauth-sign-in.use-case';
+import { RefreshTokenUseCase } from './application/use-cases/refresh-token.use-case';
+import { RegisterUserUseCase } from './application/use-cases/register-user.use-case';
+import { ResendOtpUseCase } from './application/use-cases/resend-otp.use-case';
+import { SignInUseCase } from './application/use-cases/sign-in.use-case';
+import { VerifyOtpUseCase } from './application/use-cases/verify-otp.use-case';
+import { ActivityCacheAdapter } from './infrastructure/cache/activity-cache.adapter';
+import { DevOtpStorageService } from './infrastructure/cache/dev-otp-storage.service';
+import { OtpCacheAdapter } from './infrastructure/cache/otp.cache';
+import { JwtServiceAdapter } from './infrastructure/jwt/jwt.adapter';
+import { FacebookStrategy } from './infrastructure/oauth-strategies/facebook.strategy';
+import { GoogleStrategy } from './infrastructure/oauth-strategies/google.strategy';
+import { LoggerAdapter } from './infrastructure/observability/logger.adapter';
+import { OtpGeneratorAdapter } from './infrastructure/otp/otp-generator.adapter';
+import { PasswordHasherAdapter } from './infrastructure/password/password-hasher.adapter';
+import { UserPrismaRepository } from './infrastructure/prisma/user.prisma.repository';
+import { PrismaUnitOfWork } from './infrastructure/uow/prisma.uow';
+import { AdminController } from './interface/http/admin.controller';
+import { AuthController } from './interface/http/auth.controller';
+import { TrackLastActivityInterceptor } from './interface/http/interceptors/track-last-activity.interceptor';
+import { PasswordValidator } from './interface/validators/password-validator.class';
+
+@Module({
+  imports: [
+    ScheduleModule.forRoot(),
+    MailerModule.forRootAsync({
+      useFactory: async (config: ConfigService) => ({
+        transport: {
+          host: config.get<string>('authConfig.email.host'),
+          port: config.get<number>('authConfig.email.port'),
+          secure: false,
+          auth: {
+            user: config.get<string>('authConfig.email.email'),
+            pass: config.get<string>('authConfig.email.pass')
+          }
+        }
+      }),
+      inject: [ConfigService]
+    }),
+    PrismaModule,
+    RedisModule,
+    LoggerModule,
+    PlatformJwtModule,
+    EmailQueueModule
+  ],
+  controllers: [AuthController, AdminController],
+  providers: [
+    // Strategies & guards
+    AccessTokenStrategy,
+    RefreshTokenStrategy,
+    RolesGuard,
+    GoogleStrategy,
+    FacebookStrategy,
+    // Application Layer
+    AuthService,
+    CommonAuthService,
+    LastActivityTrackService,
+    LogoutService,
+    OtpDomainService,
+    OtpService,
+    PasswordPolicyService,
+    PasswordValidationService,
+    UserService,
+    // Application Use Cases
+    RegisterUserUseCase,
+    SignInUseCase,
+    VerifyOtpUseCase,
+    ResendOtpUseCase,
+    ForgetPasswordUseCase,
+    ChangePasswordUseCase,
+    RefreshTokenUseCase,
+    OAuthSignInUseCase,
+    CreateStaffUseCase,
+    // Infrastructure Services
+    {
+      provide: USER_REPOSITORY_PORT,
+      useClass: UserPrismaRepository
+    },
+    UserPrismaRepository,
+    // Email Service - Use different adapter based on environment
+    {
+      provide: EMAIL_SERVICE_PORT,
+      useFactory: (
+        emailQueueService: EmailQueueService,
+        devOtpStorage: DevOtpStorageService,
+        logger: LoggerService,
+        config: ConfigService
+      ) => {
+        const nodeEnv = config.get<string>('NODE_ENV', 'development');
+        const isDevelopment = nodeEnv === 'development';
+
+        if (isDevelopment) {
+          const {EmailServiceMockAdapter} = require('./infrastructure/email/otp-email-dev.adapter');
+          return new EmailServiceMockAdapter(devOtpStorage, logger);
+        } else {
+          const {EmailServiceProductionAdapter} = require('./infrastructure/email/otp-email-production.adapter');
+          return new EmailServiceProductionAdapter(emailQueueService, logger);
+        }
+      },
+      inject: [EmailQueueService, DevOtpStorageService, LoggerService, ConfigService]
+    },
+    DevOtpStorageService,
+    {
+      provide: OTP_CACHE_PORT,
+      useClass: OtpCacheAdapter
+    },
+    OtpCacheAdapter,
+    {
+      provide: ACTIVITY_CACHE_PORT,
+      useClass: ActivityCacheAdapter
+    },
+    ActivityCacheAdapter,
+    {
+      provide: JWT_SERVICE_PORT,
+      useClass: JwtServiceAdapter
+    },
+    JwtServiceAdapter,
+    {
+      provide: LOGGER_PORT,
+      useClass: LoggerAdapter
+    },
+    LoggerAdapter,
+    {
+      provide: PASSWORD_HASHER_PORT,
+      useClass: PasswordHasherAdapter
+    },
+    PasswordHasherAdapter,
+    {
+      provide: OTP_GENERATOR_PORT,
+      useClass: OtpGeneratorAdapter
+    },
+    OtpGeneratorAdapter,
+    LastActivityTrackService,
+    LogoutService,
+    {
+      provide: UNIT_OF_WORK_PORT,
+      useClass: PrismaUnitOfWork
+    },
+    PrismaUnitOfWork,
+    // JTI allowlist
+    JtiAllowlistService,
+    // Validators
+    PasswordValidator,
+    // Token validation
+    // Interceptors
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TrackLastActivityInterceptor
+    }
+  ],
+  exports: [
+    AuthService,
+    UserService,
+    LastActivityTrackService,
+    AccessTokenStrategy,
+    RefreshTokenStrategy,
+    RolesGuard
+  ]
+})
+export class AuthModule {}

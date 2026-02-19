@@ -1,0 +1,297 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  EMPLOYEE
+  ADMIN
+}
+
+enum AccountType {
+  CHECKING
+  SAVINGS
+  LOAN
+}
+
+enum Currency {
+  USD
+  EUR
+  GBP
+  BDT
+  INR
+  JPY
+  CNY
+  AUD
+  CAD
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER_IN
+  TRANSFER_OUT
+  INTEREST_CREDIT
+  FEE
+  LOAN_DISBURSEMENT
+  LOAN_REPAYMENT
+}
+
+model User {
+  id Int @id @default(autoincrement())
+
+  email     String  @unique
+  password  String
+  firstName String?
+  lastName  String?
+
+  role UserRole @default(CUSTOMER)
+
+  loginSource  String  @default("default")
+  authorizerId String?
+
+  verified         Boolean
+  isForgetPassword Boolean
+
+  mfaEnabled         Boolean   @default(false)
+  failedOtpAttempts  Int       @default(0)
+  accountLockedUntil DateTime?
+
+  lastActivityAt DateTime?
+
+  logoutPin String
+
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts         Account[]
+  loanApplications  LoanApplication[]
+  loanDecisions     LoanApplication[] @relation("LoanDecidedBy")
+  savingsPlans      SavingsPlan[]
+
+  @@map("users")
+}
+
+model Account {
+  id Int @id @default(autoincrement())
+
+  accountNumber     String  @db.Text // Encrypted at rest (AES-256-GCM)
+  accountNumberHash String? @unique   // HMAC-SHA256 for lookup; required for new rows
+  userId            Int
+  user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type     AccountType
+  currency Currency @default(USD)
+
+  balance      Decimal @default(0) @db.Decimal(15, 2)
+  availableBalance Decimal @default(0) @db.Decimal(15, 2) // Balance minus holds/pending
+
+  status String @default("ACTIVE") // ACTIVE, INACTIVE, CLOSED, FROZEN
+
+  interestRate Decimal? @db.Decimal(5, 4) // For savings/loan accounts
+  minimumBalance Decimal? @db.Decimal(15, 2) // Minimum balance requirement
+
+  // Loan-specific fields
+  loanAmount      Decimal? @db.Decimal(15, 2)
+  loanTermMonths  Int?
+  loanStartDate   DateTime?
+  loanEndDate     DateTime?
+  monthlyPayment  Decimal? @db.Decimal(15, 2)
+
+  // Transaction limits and fees (real-world: per-account or per-type defaults)
+  dailyWithdrawalLimit Decimal? @db.Decimal(15, 2) // Max withdrawal+transfer out per calendar day
+  transferFeePercent   Decimal? @db.Decimal(5, 4) // e.g. 0.50 = 0.5%
+  transferFeeFixed     Decimal? @db.Decimal(15, 2) // Fixed fee per transfer
+
+  // Interest: last time we credited interest (for SAVINGS monthly credit)
+  lastInterestCreditedAt DateTime?
+
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions   Transaction[]
+  loanApplication LoanApplication?
+  savingsPlansAsSource SavingsPlan[]
+
+  @@index([userId])
+  @@index([accountNumberHash])
+  @@index([type])
+  @@index([status])
+  @@map("accounts")
+}
+
+model Transaction {
+  id Int @id @default(autoincrement())
+
+  accountId Int
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  type TransactionType
+
+  amount      Decimal @db.Decimal(15, 2)
+  balanceAfter Decimal @db.Decimal(15, 2) // Account balance after this transaction
+
+  description String?
+  referenceNumber String? @unique // External reference number
+
+  // For transfers
+  relatedAccountId Int? // Account involved in transfer
+  relatedTransactionId Int? // Related transaction ID for transfers
+
+  metadata Json? // Additional transaction metadata
+
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([referenceNumber])
+  @@map("transactions")
+}
+
+// ---------------------------------------------------------------------------
+// Loan Management: applications and repayment schedule
+// ---------------------------------------------------------------------------
+enum LoanType {
+  PERSONAL
+  HOME
+  AUTO
+  EDUCATION
+  BUSINESS
+}
+
+enum LoanApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RepaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+}
+
+model LoanApplication {
+  id     Int @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  loanType     LoanType
+  amount       Decimal @db.Decimal(15, 2)
+  termMonths   Int
+  interestRate Decimal @db.Decimal(5, 4) // e.g. 5.5 = 5.5% per year
+  purpose      String? @db.VarChar(500)
+  currency     Currency @default(USD)
+
+  status LoanApplicationStatus @default(PENDING)
+
+  appliedAt   DateTime @default(now())
+  decidedAt  DateTime?
+  decidedByUserId Int?
+  decidedBy   User?   @relation("LoanDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  rejectionReason String? @db.VarChar(500)
+
+  // When approved: loan account created and linked (one-to-one: each account has at most one loan application)
+  accountId Int?    @unique
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  // Penalty: e.g. 1% per month overdue (stored as 1.0) or 0.05% per day
+  penaltyRatePercentPerMonth Decimal? @db.Decimal(5, 2) @default(1) // 1% per month overdue
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  repayments LoanRepayment[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([appliedAt])
+  @@map("loan_applications")
+}
+
+model LoanRepayment {
+  id               Int @id @default(autoincrement())
+  loanApplicationId Int
+  loanApplication  LoanApplication @relation(fields: [loanApplicationId], references: [id], onDelete: Cascade)
+
+  installmentNumber Int
+  dueDate           DateTime @db.Date
+  principalAmount   Decimal @db.Decimal(15, 2)
+  interestAmount    Decimal @db.Decimal(15, 2)
+  penaltyAmount     Decimal @default(0) @db.Decimal(15, 2)
+  totalAmount       Decimal @db.Decimal(15, 2) // principal + interest + penalty
+
+  paidAt   DateTime?
+  status  RepaymentStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([loanApplicationId, installmentNumber])
+  @@index([loanApplicationId])
+  @@index([dueDate])
+  @@index([status])
+  @@map("loan_repayments")
+}
+
+// ---------------------------------------------------------------------------
+// Savings Plans: Fixed Deposit (FD) and Recurring Deposit (RD)
+// ---------------------------------------------------------------------------
+enum SavingsPlanType {
+  FIXED_DEPOSIT
+  RECURRING_DEPOSIT
+}
+
+enum SavingsPlanStatus {
+  ACTIVE
+  MATURED
+  CLOSED
+}
+
+model SavingsPlan {
+  id     Int @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceAccountId Int
+  sourceAccount   Account @relation(fields: [sourceAccountId], references: [id], onDelete: Restrict)
+
+  planType SavingsPlanType
+  currency Currency @default(USD)
+
+  // Fixed Deposit: one-time principal
+  principal Decimal? @db.Decimal(15, 2)
+  // Recurring Deposit: monthly installment
+  monthlyAmount Decimal? @db.Decimal(15, 2)
+
+  interestRate   Decimal @db.Decimal(5, 4) // annual % e.g. 5.5
+  termMonths     Int
+  startDate     DateTime @db.Date
+  endDate       DateTime @db.Date
+  status        SavingsPlanStatus @default(ACTIVE)
+
+  interestCreditedTotal Decimal @default(0) @db.Decimal(15, 2)
+  lastInterestCreditedAt DateTime?
+
+  // RD: total deposited so far; next due date for installment
+  totalDeposited Decimal @default(0) @db.Decimal(15, 2)
+  nextDueDate    DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([endDate])
+  @@map("savings_plans")
+}
+

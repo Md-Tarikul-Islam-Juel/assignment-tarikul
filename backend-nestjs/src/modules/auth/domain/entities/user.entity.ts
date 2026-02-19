@@ -1,0 +1,72 @@
+import type { UserRole } from '../../../../common/types/user-role.type';
+import { Email } from '../value-objects/email.vo';
+import { Password } from '../value-objects/password.vo';
+
+export class User {
+  constructor(
+    public readonly id: number,
+    public readonly email: Email,
+    private password: Password,
+    public readonly firstName: string | null,
+    public readonly lastName: string | null,
+    public readonly role: UserRole,
+    public readonly verified: boolean,
+    public readonly isForgetPassword: boolean,
+    public readonly loginSource: string,
+    public readonly authorizerId: string | null,
+    public readonly mfaEnabled: boolean,
+    public readonly failedOtpAttempts: number,
+    public readonly accountLockedUntil: Date | null,
+    public readonly lastActivityAt: Date | null,
+    public readonly logoutPin: string,
+    public readonly deletedAt: Date | null, // Soft delete timestamp
+    public readonly createdAt: Date,
+    public readonly updatedAt: Date
+  ) {}
+
+  updatePassword(newPassword: Password): void {
+    this.password = newPassword;
+  }
+
+  getPassword(): Password {
+    return this.password;
+  }
+
+  isVerified(): boolean {
+    return this.verified;
+  }
+
+  isLocked(): boolean {
+    if (!this.accountLockedUntil) {
+      return false;
+    }
+    return new Date() < this.accountLockedUntil;
+  }
+
+  markAsVerified(): User {
+    return new User(
+      this.id,
+      this.email,
+      this.password,
+      this.firstName,
+      this.lastName,
+      this.role,
+      true,
+      this.isForgetPassword,
+      this.loginSource,
+      this.authorizerId,
+      this.mfaEnabled,
+      this.failedOtpAttempts,
+      this.accountLockedUntil,
+      this.lastActivityAt,
+      this.logoutPin,
+      this.deletedAt,
+      this.createdAt,
+      this.updatedAt
+    );
+  }
+
+  isDeleted(): boolean {
+    return this.deletedAt !== null;
+  }
+}

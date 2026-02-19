@@ -1,0 +1,4 @@
+export enum SavingsPlanType {
+  FIXED_DEPOSIT = 'FIXED_DEPOSIT',
+  RECURRING_DEPOSIT = 'RECURRING_DEPOSIT',
+}
